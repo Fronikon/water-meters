@@ -1,5 +1,6 @@
 # Water Meters
 
+## Техническое задание:
 Создать приложение для отображения списка счётчиков горячей и холодной воды.
 Дизайн: https://www.figma.com/design/gxVXNv5MEY8RQ1KXRVvkUT/%D0%A2%D0%B5%D1%81%D1%82-(%D1%84%D1%80%D0%BE%D0%BD%D1%82)?node-id=0-1&t=QQ9ijj1biJPPjj7s-0;
 
@@ -35,10 +36,10 @@
 styled-components — по желанию.
 
 Конфиг Prettier
-trailingComma: "es5"
+`trailingComma: "es5"
 tabWidth: 2
 semi: true
 singleQuote: true
-printWidth: 80
+printWidth: 80`
 
 Проект выложить на github.
