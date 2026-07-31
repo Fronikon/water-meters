@@ -42,10 +42,6 @@ printWidth: 80
 
 ---
 
-## Демо
-
-[https://water-meters-smoky.vercel.app/](https://water-meters-smoky.vercel.app/)
-
 ## Запуск локально
 
 ```bash
