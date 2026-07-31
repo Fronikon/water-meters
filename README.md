@@ -1,6 +1,7 @@
 # Water Meters
 
 ## Техническое задание:
+
 Создать приложение для отображения списка счётчиков горячей и холодной воды.
 Дизайн: https://www.figma.com/design/gxVXNv5MEY8RQ1KXRVvkUT/%D0%A2%D0%B5%D1%81%D1%82-(%D1%84%D1%80%D0%BE%D0%BD%D1%82)?node-id=0-1&t=QQ9ijj1biJPPjj7s-0;
 
@@ -10,14 +11,7 @@
    (выводить по 20 на страницу).
    Данные должны выводиться на странице с внутренним скроллом
    («шапка» фиксированная, табличка скроллится внутри).
-    Колонки:
-       - Порядковый номер.
-       - Тип (ColdWaterAreaMeter — ХВС, HotWaterAreaMeter — ГВС).
-       - Дата установки в формате дд.мм.гггг.
-       - Автоматический ли он (is_automatic). 
-       - Значение (initial_values).
-       - Адреc. 
-       - Примечание (description).
+   Колонки: - Порядковый номер. - Тип (ColdWaterAreaMeter — ХВС, HotWaterAreaMeter — ГВС). - Дата установки в формате дд.мм.гггг. - Автоматический ли он (is_automatic). - Значение (initial_values). - Адреc. - Примечание (description).
 
 2. Адрес счётчика.
    Адреса получать параллельным запросом
@@ -36,10 +30,34 @@
 styled-components — по желанию.
 
 Конфиг Prettier
-`trailingComma: "es5"
+```
+trailingComma: "es5"
 tabWidth: 2
 semi: true
 singleQuote: true
-printWidth: 80`
+printWidth: 80
+```
 
 Проект выложить на github.
+
+---
+
+## Демо
+
+[https://water-meters-smoky.vercel.app/](https://water-meters-smoky.vercel.app/)
+
+## Запуск локально
+
+```bash
+# Установка зависимостей
+npm install
+
+# Запуск dev-сервера (Vite proxy на localhost:5173)
+npm run dev
+
+# Сборка для production
+npm run build
+
+# Preview production-сборки
+npm run preview
+```
