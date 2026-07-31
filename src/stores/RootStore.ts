@@ -1,14 +1,11 @@
 import { types } from 'mobx-state-tree';
 import type { Instance } from 'mobx-state-tree';
 import { createContext, useContext } from 'react';
+import { MetersStore } from './MetersStore.ts';
 
-export const RootStore = types
-  .model('RootStore', {
-    // Add your models here
-  })
-  .actions(() => ({
-    // Add your actions here
-  }));
+export const RootStore = types.model('RootStore', {
+  metersStore: types.optional(MetersStore, {}),
+});
 
 export type IRootStore = Instance<typeof RootStore>;
 
