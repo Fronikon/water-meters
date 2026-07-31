@@ -107,7 +107,7 @@ const ErrorBanner = styled.div`
 
 const LoadingOverlay = styled.div`
   position: fixed;
-  bottom: 16px;
+  top: 16px;
   right: 16px;
   padding: 8px 16px;
   background-color: #1f2939;

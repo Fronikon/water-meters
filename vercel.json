@@ -1,0 +1,8 @@
+{
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "https://showroom.eis24.me/c300/api/:path*"
+    }
+  ]
+}
