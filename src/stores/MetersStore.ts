@@ -1,12 +1,14 @@
-import { types, getParent } from 'mobx-state-tree';
+import { types, flow, getParent } from 'mobx-state-tree';
 import type { Instance } from 'mobx-state-tree';
 import type {
   RawMeter,
   RawArea,
   TMeterType,
   TMeterTypeLabel,
+  MetersResponse,
 } from '../types/meters.ts';
 import { toMeterTypeLabel, getInitialValue } from '../types/meters.ts';
+import { fetchMeters, fetchAreas } from '../api/metersApi.ts';
 
 // ============================================================
 // AreaModel — адрес из кэша
@@ -153,6 +155,58 @@ export const MetersStore = types
         }
       }
     },
+
+    /** Асинхронная загрузка страницы */
+    loadPage: flow(function* (offset: number) {
+      self.isLoading = true;
+      self.error = null;
+
+      try {
+        const response: MetersResponse = yield fetchMeters(self.limit, offset);
+
+        self.offset = offset;
+        self.count = response.count;
+
+        // Маппим сырые данные в модели
+        const models = response.results.map((raw) => {
+          const typeLabel = toMeterTypeLabel(
+            raw._type[0] || 'ColdWaterAreaMeter'
+          );
+          return MeterModel.create({
+            id: raw.id,
+            meterType: typeLabel,
+            installationDate: raw.installation_date,
+            isAutomatic: raw.is_automatic,
+            initialValues: [...raw.initial_values] as number[],
+            description: raw.description,
+            areaId: raw.area.id,
+          });
+        });
+        self.meters.replace(models);
+
+        // Загружаем адреса для полученных счётчиков
+        const areaIds = [...new Set(response.results.map((r) => r.area.id))];
+        const areas: RawArea[] = yield fetchAreas(areaIds);
+        for (const raw of areas) {
+          if (!self.areasCache.has(raw.id)) {
+            const area = AreaModel.create({
+              id: raw.id,
+              number: raw.number,
+              str_number: raw.str_number,
+              str_number_full: raw.str_number_full,
+              houseAddress: raw.house.address,
+            });
+            self.areasCache.set(raw.id, area);
+          }
+        }
+      } catch (e: unknown) {
+        const message =
+          e instanceof Error ? e.message : 'Ошибка загрузки данных';
+        self.error = message;
+      } finally {
+        self.isLoading = false;
+      }
+    }),
   }));
 
 export type IMeterModel = Instance<typeof MeterModel>;

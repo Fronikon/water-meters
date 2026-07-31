@@ -3,8 +3,6 @@ import styled from 'styled-components';
 import { type TMeter } from '../types/meters.ts';
 import { DeleteButton } from './DeleteButton.tsx';
 import { MeterType } from './MeterType.tsx';
-import { Pagination } from './Pagination.tsx';
-
 export interface MetersTableProps {
   meters: TMeter[];
   startIndex: number;
@@ -13,25 +11,11 @@ export interface MetersTableProps {
 
 const columns = `80px 120px 160px 140px 160px minmax(200px, 1fr) minmax(160px, 1fr) 64px`;
 
-export const MetersTable: React.FC = () => {
-  const props: MetersTableProps = {
-    meters: [
-      {
-        id: '1',
-        type: 'HotWaterAreaMeter',
-        installDate: '12.01.2023',
-        automatic: true,
-        currentValue: 333467.6636,
-        address: 'г Санкт-Петербург, ул Тарасова, д. 0 корп. 0 лит. А, кв. 1',
-        note: 'Подвал, парадная 1',
-      },
-    ],
-    startIndex: 0,
-    onDelete: () => {},
-  };
-
-  const { meters, onDelete, startIndex } = props;
-
+export const MetersTable: React.FC<MetersTableProps> = ({
+  meters,
+  startIndex,
+  onDelete,
+}) => {
   return (
     <Wrapper>
       <TableContainer>
@@ -68,7 +52,7 @@ export const MetersTable: React.FC = () => {
                     <Ellipsis title={meter.address}> {meter.address}</Ellipsis>
                   </Td>
                   <Td>
-                    <Ellipsis title={meter.note}>{meter.note}</Ellipsis>
+                    <Ellipsis title={meter.note}>{meter.note || '-'}</Ellipsis>
                   </Td>
                   <Td>
                     <DeleteButton
@@ -84,9 +68,6 @@ export const MetersTable: React.FC = () => {
           )}
         </Body>
       </TableContainer>
-      <Footer>
-        <Pagination page={98} totalPages={100} onChange={() => {}} />
-      </Footer>
     </Wrapper>
   );
 };
@@ -97,8 +78,6 @@ const Wrapper = styled.div`
   grid-template-rows: 1fr min-content;
   overflow-x: hidden;
 
-  border: 1px solid #e0e5eb;
-  border-radius: 12px;
   background-color: #ffffff;
 `;
 
@@ -119,12 +98,6 @@ const Body = styled.div`
   overflow-y: auto;
 
   scrollbar-gutter: stable;
-`;
-
-const Footer = styled.div`
-  padding: 8px 16px;
-
-  border-top: 1px solid #e0e5eb;
 `;
 
 const Row = styled.div`
@@ -173,6 +146,7 @@ const Td = styled.div`
     visibility: hidden;
   }
 `;
+
 const EmptyRow = styled.div`
   padding: 32px 0;
   color: #9ca3af;

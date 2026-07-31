@@ -5,4 +5,14 @@ import svgr from 'vite-plugin-svgr';
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react(), svgr()],
+  server: {
+    proxy: {
+      '/api': {
+        target: 'https://showroom.eis24.me',
+        changeOrigin: true,
+        secure: false,
+        rewrite: (path) => path.replace(/^\/api/, '/c300/api'),
+      },
+    },
+  },
 });
