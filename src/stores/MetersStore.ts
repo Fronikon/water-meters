@@ -296,8 +296,9 @@ export const MetersStore = types
             // на экран, чтобы не мелькнуло "Загрузка...".
             yield* loadAreasForMeters([raw.area.id], self.areasCache);
 
-            // 3. Атомарная замена: массив как был длиной 20, так и остался.
-            self.meters.splice(index, 1, nextMeter);
+            // 3. Удаляем старый счётчик и добавляем новый в конец.
+            self.meters.splice(index, 1);
+            self.meters.push(nextMeter);
           } else {
             // Сервер сказал, что элемент есть (nextOffset < count), но
             // ничего не вернул — реального пополнения нет, убираем как есть.
