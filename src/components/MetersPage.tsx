@@ -43,13 +43,15 @@ export const MetersPage: React.FC = observer(() => {
           startIndex={metersStore.offset}
           onDelete={handleDelete}
         />
-        <Footer>
-          <Pagination
-            page={metersStore.currentPage}
-            totalPages={metersStore.totalPages}
-            onChange={handlePageChange}
-          />
-        </Footer>
+        {metersStore.totalPages > 1 && (
+          <Footer>
+            <Pagination
+              page={metersStore.currentPage}
+              totalPages={metersStore.totalPages}
+              onChange={handlePageChange}
+            />
+          </Footer>
+        )}
       </TableWrapper>
       {metersStore.isLoading && <LoadingOverlay>Загрузка...</LoadingOverlay>}
     </Page>
@@ -57,12 +59,11 @@ export const MetersPage: React.FC = observer(() => {
 });
 
 const Page = styled.main`
-  display: grid;
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
   padding: 16px;
   background-color: #f8f9fa;
-
-  grid-template-rows: max-content 1fr;
 
   height: 100vh;
 `;
@@ -76,6 +77,8 @@ const Title = styled.h1`
 `;
 
 const TableWrapper = styled.div`
+  flex: 1;
+
   display: grid;
   grid-template-rows: 1fr min-content;
   overflow: hidden;
