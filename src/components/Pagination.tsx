@@ -16,7 +16,7 @@ function getPageItems(page: number, totalPages: number): PageItem[] {
   }
 
   // Начало
-  if (page <= 4) {
+  if (page < 4) {
     return [
       1,
       2,
@@ -29,7 +29,7 @@ function getPageItems(page: number, totalPages: number): PageItem[] {
   }
 
   // Конец
-  if (page >= totalPages - 3) {
+  if (page > totalPages - 3) {
     return [
       1,
       2,
@@ -81,9 +81,20 @@ export const Pagination: React.FC<PaginationProps> = ({
 
         const isLeft = item === 'ellipsis-left';
 
+        // Троеточие переходит на первый скрытый шаг:
+        // - левое → первая видимая страница - 1
+        // - правое → последняя видимая страница + 1
         const targetPage = isLeft
-          ? Math.max(1, page - 3)
-          : Math.min(totalPages, page + 3);
+          ? page <= 3
+            ? 1 // не должно случиться, т.к. в начале левого троеточия нет
+            : page > totalPages - 3
+              ? totalPages - 3 // конец: первая видимая - 1
+              : page - 2 // середина: (page-1) - 1
+          : page < 4
+            ? 4 // начало: последняя видимая + 1
+            : page >= totalPages - 2
+              ? totalPages // не должно случиться, т.к. в конце правого троеточия нет
+              : page + 2; // середина: (page+1) + 1
 
         return (
           <PageButton
@@ -146,10 +157,7 @@ const PageButton = styled.button<{
   ${({ $active }) =>
     $active &&
     `
+      pointer-events: none;
       background-color: #F2F5F8;
-
-      &:hover {
-        background-color: #2f5fe0;
-      }
     `}
 `;
