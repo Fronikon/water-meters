@@ -7,6 +7,7 @@ export interface MetersTableProps {
   meters: TMeter[];
   startIndex: number;
   onDelete: (id: string) => void;
+  isDeleting?: boolean;
 }
 
 const columns = `80px 120px 160px 140px 160px minmax(200px, 1fr) minmax(160px, 1fr) 64px`;
@@ -15,6 +16,7 @@ export const MetersTable: React.FC<MetersTableProps> = ({
   meters,
   startIndex,
   onDelete,
+  isDeleting = false,
 }) => {
   return (
     <Wrapper>
@@ -60,6 +62,7 @@ export const MetersTable: React.FC<MetersTableProps> = ({
                       className="row-delete"
                       aria-label={`Удалить счётчик №${meter.id}`}
                       onClick={() => onDelete(meter.id)}
+                      disabled={isDeleting}
                     />
                   </Td>
                 </Row>

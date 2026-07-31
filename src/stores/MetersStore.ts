@@ -37,7 +37,13 @@ export const MeterModel = types
     areaId: types.string,
   })
   .views((self) => {
-    /** Получить родительский MetersStore (на 2 уровня выше) */
+    /**
+     * Получить родительский MetersStore.
+     * ВНИМАНИЕ: глубина (2) жёстко завязана на текущую структуру дерева
+     * (MetersStore -> types.array(MeterModel) -> MeterModel). Если модель
+     * когда-нибудь будет вложена иначе или переиспользована в другом сторе,
+     * этот метод сломается в рантайме без ошибки типов на этапе компиляции.
+     */
     function getStore() {
       return getParent<{
         areasCache: {
@@ -58,15 +64,16 @@ export const MeterModel = types
 
       /** Отформатированная дата установки: дд.мм.гггг */
       get formattedDate(): string {
-        try {
-          const d = new Date(self.installationDate);
-          const day = String(d.getDate()).padStart(2, '0');
-          const month = String(d.getMonth() + 1).padStart(2, '0');
-          const year = d.getFullYear();
-          return `${day}.${month}.${year}`;
-        } catch {
+        const d = new Date(self.installationDate);
+        if (Number.isNaN(d.getTime())) {
+          // new Date() не бросает исключение на невалидной строке —
+          // она возвращает Invalid Date, поэтому проверяем явно.
           return self.installationDate;
         }
+        const day = String(d.getDate()).padStart(2, '0');
+        const month = String(d.getMonth() + 1).padStart(2, '0');
+        const year = d.getFullYear();
+        return `${day}.${month}.${year}`;
       },
 
       /** Первое значение из initial_values для отображения */
@@ -88,16 +95,43 @@ export const MeterModel = types
         return `${area.houseAddress}, ${area.str_number_full}`;
       },
     };
-  });
+  })
+  .volatile(() => ({
+    /**
+     * Транзиентный UI-флаг: идёт удаление именно этого счётчика.
+     * Не персистится в snapshot — только для отрисовки спиннера/затемнения
+     * на месте элемента, пока он ещё числится в списке.
+     */
+    isRemoving: false,
+  }))
+  .actions((self) => ({
+    setRemoving(v: boolean) {
+      self.isRemoving = v;
+    },
+  }));
 
 // ============================================================
-// Вспомогательный генератор для загрузки адресов с кэшированием
-// Используется с yield* внутри flow-экшенов
+// Вспомогательные функции (чистые, без обращения к self)
 // ============================================================
+
+/** Единая точка маппинга сырых данных API в snapshot MeterModel */
+function rawMeterToSnapshot(raw: RawMeter) {
+  const typeLabel = toMeterTypeLabel(raw._type[0] || 'ColdWaterAreaMeter');
+  return {
+    id: raw.id,
+    meterType: typeLabel,
+    installationDate: raw.installation_date,
+    isAutomatic: raw.is_automatic,
+    initialValues: [...raw.initial_values] as number[],
+    description: raw.description,
+    areaId: raw.area.id,
+  };
+}
 
 /**
  * Загружает адреса для указанных areaId, которых ещё нет в кэше.
  * Ничего не делает, если все id уже закэшированы.
+ * Используется с yield* внутри flow-экшенов.
  */
 function* loadAreasForMeters(
   areaIds: string[],
@@ -154,6 +188,15 @@ export const MetersStore = types
     get currentPage(): number {
       return Math.floor(self.offset / self.limit) + 1;
     },
+
+    /**
+     * Идёт ли сейчас любая мутирующая операция над meters/offset/count.
+     * Используется, чтобы loadPage и removeMeter не выполнялись параллельно
+     * и не рассинхронизировали список.
+     */
+    get isBusy(): boolean {
+      return self.isLoading || self.isDeleting;
+    },
   }))
   .actions((self) => ({
     setLoading(v: boolean) {
@@ -172,84 +215,102 @@ export const MetersStore = types
       self.offset = (page - 1) * self.limit;
     },
 
-    /** Заменить все счётчики текущей страницы (из сырых данных) */
-    setMeters(rawList: RawMeter[]) {
-      const models = rawList.map((raw) => {
-        const typeLabel = toMeterTypeLabel(
-          raw._type[0] || 'ColdWaterAreaMeter'
-        );
-        return MeterModel.create({
-          id: raw.id,
-          meterType: typeLabel,
-          installationDate: raw.installation_date,
-          isAutomatic: raw.is_automatic,
-          initialValues: [...raw.initial_values] as number[],
-          description: raw.description,
-          areaId: raw.area.id,
-        });
-      });
+    /**
+     * Заменить все счётчики текущей страницы (из сырых данных).
+     * В отличие от предыдущей версии — теперь, как и loadPage, обновляет
+     * count и подгружает адреса, чтобы не оставлять счётчики с вечным
+     * "Загрузка..." при использовании этого action напрямую.
+     */
+    setMeters: flow(function* (rawList: RawMeter[], count?: number) {
+      const models = rawList.map((raw) =>
+        MeterModel.create(rawMeterToSnapshot(raw))
+      );
       self.meters.replace(models);
-    },
+      if (count !== undefined) {
+        self.count = count;
+      }
+      const areaIds = rawList.map((r) => r.area.id);
+      yield* loadAreasForMeters(areaIds, self.areasCache);
+    }),
 
     setCount(c: number) {
       self.count = c;
     },
-
+  }))
+  .actions((self) => ({
     /**
      * Удаление счётчика.
-     * - Оптимистично убираем из meters (мгновенный UI)
-     * - Если запрос упал — возвращаем на место и показываем ошибку
-     * - Если успешен — подгружаем следующий элемент, чтобы страница снова была 20
      *
-     * Гонки: sequentialQueue флаг prevents одновременных удалений. Если пользователь
-     * кликает быстро по нескольким кнопкам — каждый следующий вызов ждёт завершения
-     * предыдущего. Это гарантирует, что offset и порядок meters не рассинхронизируются.
+     * Важно: элемент НЕ убирается из meters сразу. Вместо этого он
+     * помечается isRemoving = true (UI может показать спиннер/затемнение
+     * на его месте), а фактическая замена в массиве происходит одной
+     * атомарной операцией splice(index, 1, newMeter) — только когда
+     * замена уже загружена. Это гарантирует, что meters.length никогда
+     * не проседает до 19: страница либо остаётся полной (20), либо,
+     * если удаляемый элемент был последним в общем списке (пополнить
+     * нечем), становится короче обоснованно — потому что элементов
+     * реально стало меньше.
+     *
+     * - Если запрос на удаление упал — снимаем isRemoving, ничего в
+     *   массиве не менялось, показываем ошибку.
+     * - Если успешен, но пополнить нечем (последняя страница) — тогда
+     *   и только тогда реально splice(index, 1).
+     *
+     * Гонки: если операция уже идёт (isBusy — покрывает и removeMeter,
+     * и loadPage), новый вызов просто отклоняется — это НЕ очередь.
+     * Повторный клик во время удаления/загрузки будет молча
+     * проигнорирован. Если нужна очередь кликов — блокируйте кнопку
+     * на уровне компонента, пока isBusy === true.
      */
     removeMeter: flow(function* (id: string) {
-      if (self.isDeleting) return; // уже удаляем — игнорируем
+      if (self.isBusy) return; // уже идёт удаление или загрузка — игнорируем
       self.isDeleting = true;
       self.error = null;
 
-      // 1. Оптимистичное удаление: запоминаем позицию и убираем из списка
       const index = self.meters.findIndex((m) => m.id === id);
       if (index === -1) {
         self.isDeleting = false;
         return;
       }
-      const [removed] = self.meters.splice(index, 1);
+      const meter = self.meters[index];
+      meter.setRemoving(true); // визуально помечаем, но НЕ убираем из массива
 
       try {
-        // 2. Выполняем DELETE на сервере
+        // 1. Выполняем DELETE на сервере
         yield deleteMeter(id);
         self.count = Math.max(0, self.count - 1);
 
-        // 3. Подгружаем следующий элемент, чтобы снова было 20
-        const nextOffset = self.offset + self.meters.length;
+        // 2. Определяем, есть ли чем заполнить освободившееся место.
+        // meters.length всё ещё включает удаляемый элемент (он не убран),
+        // поэтому индекс кандидата на замену — offset + (length - 1),
+        // т.е. следующий за текущей страницей элемент общего списка.
+        const nextOffset = self.offset + self.meters.length - 1;
+
         if (nextOffset < self.count) {
           const response: MetersResponse = yield fetchMeters(1, nextOffset);
           if (response.results.length > 0) {
             const raw = response.results[0];
-            const typeLabel = toMeterTypeLabel(
-              raw._type[0] || 'ColdWaterAreaMeter'
-            );
-            const nextMeter = MeterModel.create({
-              id: raw.id,
-              meterType: typeLabel,
-              installationDate: raw.installation_date,
-              isAutomatic: raw.is_automatic,
-              initialValues: [...raw.initial_values] as number[],
-              description: raw.description,
-              areaId: raw.area.id,
-            });
-            self.meters.push(nextMeter);
+            const nextMeter = MeterModel.create(rawMeterToSnapshot(raw));
 
-            // 4. Загружаем адрес для нового счётчика
+            // Подгружаем адрес нового счётчика ДО того, как он попадёт
+            // на экран, чтобы не мелькнуло "Загрузка...".
             yield* loadAreasForMeters([raw.area.id], self.areasCache);
+
+            // 3. Атомарная замена: массив как был длиной 20, так и остался.
+            self.meters.splice(index, 1, nextMeter);
+          } else {
+            // Сервер сказал, что элемент есть (nextOffset < count), но
+            // ничего не вернул — реального пополнения нет, убираем как есть.
+            self.meters.splice(index, 1);
           }
+        } else {
+          // Пополнять нечем (это был последний элемент общего списка) —
+          // страница обоснованно становится короче.
+          self.meters.splice(index, 1);
         }
       } catch (e: unknown) {
-        // 5. Ошибка — возвращаем счётчик на место
-        self.meters.splice(index, 0, removed);
+        // Ошибка — массив не трогали, просто снимаем визуальную пометку
+        meter.setRemoving(false);
         const message =
           e instanceof Error ? e.message : 'Ошибка удаления счётчика';
         self.error = message;
@@ -260,6 +321,7 @@ export const MetersStore = types
 
     /** Асинхронная загрузка страницы */
     loadPage: flow(function* (offset: number) {
+      if (self.isBusy) return; // не даём гонку с removeMeter/другой loadPage
       self.isLoading = true;
       self.error = null;
 
@@ -269,21 +331,9 @@ export const MetersStore = types
         self.offset = offset;
         self.count = response.count;
 
-        // Маппим сырые данные в модели
-        const models = response.results.map((raw) => {
-          const typeLabel = toMeterTypeLabel(
-            raw._type[0] || 'ColdWaterAreaMeter'
-          );
-          return MeterModel.create({
-            id: raw.id,
-            meterType: typeLabel,
-            installationDate: raw.installation_date,
-            isAutomatic: raw.is_automatic,
-            initialValues: [...raw.initial_values] as number[],
-            description: raw.description,
-            areaId: raw.area.id,
-          });
-        });
+        const models = response.results.map((raw) =>
+          MeterModel.create(rawMeterToSnapshot(raw))
+        );
         self.meters.replace(models);
 
         // Загружаем адреса для полученных счётчиков (до сброса isLoading)

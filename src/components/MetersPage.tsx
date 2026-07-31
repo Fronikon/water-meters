@@ -42,6 +42,7 @@ export const MetersPage: React.FC = observer(() => {
           meters={meters}
           startIndex={metersStore.offset}
           onDelete={handleDelete}
+          isDeleting={metersStore.isDeleting}
         />
         {metersStore.totalPages > 1 && (
           <Footer>
