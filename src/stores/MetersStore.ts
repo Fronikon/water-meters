@@ -8,7 +8,7 @@ import type {
   MetersResponse,
 } from '../types/meters.ts';
 import { toMeterTypeLabel, getInitialValue } from '../types/meters.ts';
-import { fetchMeters, fetchAreas } from '../api/metersApi.ts';
+import { fetchMeters, fetchAreas, deleteMeter } from '../api/metersApi.ts';
 
 // ============================================================
 // AreaModel — адрес из кэша
@@ -194,6 +194,69 @@ export const MetersStore = types
     setCount(c: number) {
       self.count = c;
     },
+
+    /**
+     * Удаление счётчика.
+     * - Оптимистично убираем из meters (мгновенный UI)
+     * - Если запрос упал — возвращаем на место и показываем ошибку
+     * - Если успешен — подгружаем следующий элемент, чтобы страница снова была 20
+     *
+     * Гонки: sequentialQueue флаг prevents одновременных удалений. Если пользователь
+     * кликает быстро по нескольким кнопкам — каждый следующий вызов ждёт завершения
+     * предыдущего. Это гарантирует, что offset и порядок meters не рассинхронизируются.
+     */
+    removeMeter: flow(function* (id: string) {
+      if (self.isDeleting) return; // уже удаляем — игнорируем
+      self.isDeleting = true;
+      self.error = null;
+
+      // 1. Оптимистичное удаление: запоминаем позицию и убираем из списка
+      const index = self.meters.findIndex((m) => m.id === id);
+      if (index === -1) {
+        self.isDeleting = false;
+        return;
+      }
+      const [removed] = self.meters.splice(index, 1);
+
+      try {
+        // 2. Выполняем DELETE на сервере
+        yield deleteMeter(id);
+        self.count = Math.max(0, self.count - 1);
+
+        // 3. Подгружаем следующий элемент, чтобы снова было 20
+        const nextOffset = self.offset + self.meters.length;
+        if (nextOffset < self.count) {
+          const response: MetersResponse = yield fetchMeters(1, nextOffset);
+          if (response.results.length > 0) {
+            const raw = response.results[0];
+            const typeLabel = toMeterTypeLabel(
+              raw._type[0] || 'ColdWaterAreaMeter'
+            );
+            const nextMeter = MeterModel.create({
+              id: raw.id,
+              meterType: typeLabel,
+              installationDate: raw.installation_date,
+              isAutomatic: raw.is_automatic,
+              initialValues: [...raw.initial_values] as number[],
+              description: raw.description,
+              areaId: raw.area.id,
+            });
+            self.meters.push(nextMeter);
+
+            // 4. Загружаем адрес для нового счётчика
+            yield* loadAreasForMeters([raw.area.id], self.areasCache);
+          }
+        }
+      } catch (e: unknown) {
+        // 5. Ошибка — возвращаем счётчик на место
+        self.meters.splice(index, 0, removed);
+        const message =
+          e instanceof Error ? e.message : 'Ошибка удаления счётчика';
+        self.error = message;
+      } finally {
+        self.isDeleting = false;
+      }
+    }),
 
     /** Асинхронная загрузка страницы */
     loadPage: flow(function* (offset: number) {

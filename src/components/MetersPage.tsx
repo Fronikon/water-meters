@@ -19,8 +19,7 @@ export const MetersPage: React.FC = observer(() => {
   };
 
   const handleDelete = (id: string) => {
-    // будет реализовано позже
-    console.log('delete', id);
+    metersStore.removeMeter(id);
   };
 
   // Маппим MST-модели в TMeter для компонента таблицы
