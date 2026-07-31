@@ -8,6 +8,7 @@ export interface MetersTableProps {
   startIndex: number;
   onDelete: (id: string) => void;
   isDeleting?: boolean;
+  isLoading?: boolean;
 }
 
 const columns = `80px 120px 160px 140px 160px minmax(200px, 1fr) minmax(160px, 1fr) 64px`;
@@ -17,6 +18,7 @@ export const MetersTable: React.FC<MetersTableProps> = ({
   startIndex,
   onDelete,
   isDeleting = false,
+  isLoading = false,
 }) => {
   return (
     <Wrapper>
@@ -32,7 +34,9 @@ export const MetersTable: React.FC<MetersTableProps> = ({
         </Header>
         <Body>
           {meters.length === 0 ? (
-            <EmptyRow>Счётчики не найдены</EmptyRow>
+            <EmptyRow>
+              {isLoading ? 'Загрузка счётчиков...' : 'Счётчики не найдены'}
+            </EmptyRow>
           ) : (
             meters.map((meter, i) => {
               const orderNumber = String(startIndex + 1 + i);
