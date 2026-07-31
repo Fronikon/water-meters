@@ -36,41 +36,96 @@ export const MeterModel = types
     description: types.string,
     areaId: types.string,
   })
-  .views((self) => ({
-    /** Получить тип счётчика как TMeterType для MeterType компонента */
-    get rawType(): TMeterType {
-      return self.meterType === 'hot'
-        ? 'HotWaterAreaMeter'
-        : 'ColdWaterAreaMeter';
-    },
+  .views((self) => {
+    /** Получить родительский MetersStore (на 2 уровня выше) */
+    function getStore() {
+      return getParent<{
+        areasCache: {
+          get: (
+            id: string
+          ) => { houseAddress: string; str_number_full: string } | undefined;
+        };
+      }>(self, 2);
+    }
 
-    /** Отформатированная дата установки: дд.мм.гггг */
-    get formattedDate(): string {
-      try {
-        const d = new Date(self.installationDate);
-        const day = String(d.getDate()).padStart(2, '0');
-        const month = String(d.getMonth() + 1).padStart(2, '0');
-        const year = d.getFullYear();
-        return `${day}.${month}.${year}`;
-      } catch {
-        return self.installationDate;
-      }
-    },
+    return {
+      /** Получить тип счётчика как TMeterType для MeterType компонента */
+      get rawType(): TMeterType {
+        return self.meterType === 'hot'
+          ? 'HotWaterAreaMeter'
+          : 'ColdWaterAreaMeter';
+      },
 
-    /** Первое значение из initial_values для отображения */
-    get displayValue(): number {
-      return getInitialValue([...self.initialValues]);
-    },
+      /** Отформатированная дата установки: дд.мм.гггг */
+      get formattedDate(): string {
+        try {
+          const d = new Date(self.installationDate);
+          const day = String(d.getDate()).padStart(2, '0');
+          const month = String(d.getMonth() + 1).padStart(2, '0');
+          const year = d.getFullYear();
+          return `${day}.${month}.${year}`;
+        } catch {
+          return self.installationDate;
+        }
+      },
 
-    /** Адрес из кэша (через родительский стор) */
-    get address(): string {
-      const store = getParent<IMetersStore>(self, 2);
-      const area = store.areasCache.get(self.areaId);
-      if (!area) return '';
-      // Формат: "г Санкт-Петербург, ул Чудес, д 256, кв. 125"
-      return `${area.houseAddress}, ${area.str_number_full}`;
-    },
-  }));
+      /** Первое значение из initial_values для отображения */
+      get displayValue(): number {
+        return getInitialValue([...self.initialValues]);
+      },
+
+      /**
+       * Адрес из кэша.
+       * Если адрес ещё не загружен — возвращает "Загрузка...".
+       * Формат: "г Санкт-Петербург, ул Чудес, д 256, кв. 125"
+       */
+      get address(): string {
+        const store = getStore();
+        const area = store.areasCache.get(self.areaId);
+        if (!area) {
+          return 'Загрузка...';
+        }
+        return `${area.houseAddress}, ${area.str_number_full}`;
+      },
+    };
+  });
+
+// ============================================================
+// Вспомогательный генератор для загрузки адресов с кэшированием
+// Используется с yield* внутри flow-экшенов
+// ============================================================
+
+/**
+ * Загружает адреса для указанных areaId, которых ещё нет в кэше.
+ * Ничего не делает, если все id уже закэшированы.
+ */
+function* loadAreasForMeters(
+  areaIds: string[],
+  areasCache: {
+    has: (id: string) => boolean;
+    get: (id: string) => unknown;
+    set: (id: string, value: IAreaModel) => void;
+  }
+): Generator<Promise<RawArea[]>, void, RawArea[]> {
+  const uniqueIds = [...new Set(areaIds)];
+  const missingIds = uniqueIds.filter((id) => !areasCache.has(id));
+
+  if (missingIds.length === 0) return;
+
+  const areas: RawArea[] = yield fetchAreas(missingIds);
+  for (const raw of areas) {
+    if (!areasCache.has(raw.id)) {
+      const area = AreaModel.create({
+        id: raw.id,
+        number: raw.number,
+        str_number: raw.str_number,
+        str_number_full: raw.str_number_full,
+        houseAddress: raw.house.address,
+      });
+      areasCache.set(raw.id, area);
+    }
+  }
+}
 
 // ============================================================
 // MetersStore
@@ -140,22 +195,6 @@ export const MetersStore = types
       self.count = c;
     },
 
-    /** Добавить адреса в кэш */
-    cacheAreas(rawList: RawArea[]) {
-      for (const raw of rawList) {
-        if (!self.areasCache.has(raw.id)) {
-          const area = AreaModel.create({
-            id: raw.id,
-            number: raw.number,
-            str_number: raw.str_number,
-            str_number_full: raw.str_number_full,
-            houseAddress: raw.house.address,
-          });
-          self.areasCache.set(raw.id, area);
-        }
-      }
-    },
-
     /** Асинхронная загрузка страницы */
     loadPage: flow(function* (offset: number) {
       self.isLoading = true;
@@ -184,21 +223,9 @@ export const MetersStore = types
         });
         self.meters.replace(models);
 
-        // Загружаем адреса для полученных счётчиков
-        const areaIds = [...new Set(response.results.map((r) => r.area.id))];
-        const areas: RawArea[] = yield fetchAreas(areaIds);
-        for (const raw of areas) {
-          if (!self.areasCache.has(raw.id)) {
-            const area = AreaModel.create({
-              id: raw.id,
-              number: raw.number,
-              str_number: raw.str_number,
-              str_number_full: raw.str_number_full,
-              houseAddress: raw.house.address,
-            });
-            self.areasCache.set(raw.id, area);
-          }
-        }
+        // Загружаем адреса для полученных счётчиков (до сброса isLoading)
+        const areaIds = response.results.map((r) => r.area.id);
+        yield* loadAreasForMeters(areaIds, self.areasCache);
       } catch (e: unknown) {
         const message =
           e instanceof Error ? e.message : 'Ошибка загрузки данных';
